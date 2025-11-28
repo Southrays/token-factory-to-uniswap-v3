@@ -138,7 +138,7 @@ contract TokenFactory {
      * @param _name This is the name of the new token being created.
      * @param _symbol This is the symbol of the new token being created.
      */
-    function createToken( string memory _name, string memory _symbol) external payable returns (bool) {
+    function createToken( string memory _name, string memory _symbol) external payable returns (address) {
         require(msg.value == i_fee, "Invalid fee amount");
         
         //Create a new token
@@ -160,7 +160,7 @@ contract TokenFactory {
 
         s_tokenData[address(newToken)] = tokenData;
 
-        return true;
+        return address(newToken);
     }
 
 
@@ -248,7 +248,7 @@ contract TokenFactory {
     /////     Internal Functions     /////
     /////////////////////////////////////
     /// @dev integer sqrt (Babylonian)
-    function _createLiquidity(address _token) internal {
+    function _createLiquidity(address _token) internal returns (bool) {
         TokenData storage tokenData = s_tokenData[_token];
 
         uint256 totalTokenSupply = Token(_token).totalSupply();
@@ -321,6 +321,7 @@ contract TokenFactory {
         }
 
         emit CreateLiquidity(tokenData.creator, _token);
+        return true;
     }
 
 
