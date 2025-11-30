@@ -6,7 +6,6 @@ pragma solidity 0.7.6;
 import {Test} from "../../lib/forge-std/src/Test.sol";
 import {TokenFactory} from "../../src/TokenFactory.sol";
 import {Token} from "../../src/Token.sol";
-// import {Token} from "../../src/Token.sol";
 
 contract CreateTokenTest is Test {
     //////////////////////////////
@@ -30,8 +29,11 @@ contract CreateTokenTest is Test {
         user1 = makeAddr("user1");
         vm.deal(user1, 10 ether);
 
+        address WETH = 0xdd13E55209Fd76AfE204dBda4007C227904f0a81;
+        address POSITION_MANAGER = 0x655C406eBfA14eE2006250925e54a1DC297b4de5;
+
         vm.prank(owner);
-        tokenFactory = new TokenFactory();
+        tokenFactory = new TokenFactory(WETH, POSITION_MANAGER);
     }
 
 
@@ -93,6 +95,20 @@ contract CreateTokenTest is Test {
 
         assertEq(currentCreatorBalance, previousCreatorBalance - fee);
         assertEq(currentDeployerBalance, previousDeployerBalance + fee);
+    }
+
+
+    function testOwnerFeesUpdateAfterTokenIsCreated() public {
+        uint256 fee = tokenFactory.i_fee();
+        uint256 previoussOwnerFees = tokenFactory.s_ownerFees();
+
+        vm.startPrank(user1);
+        tokenFactory.createToken{value: fee}("UserToken", "UTK");
+        vm.stopPrank();
+
+        uint256 currentOwnerFees = tokenFactory.s_ownerFees();
+
+        assertEq(currentOwnerFees, previoussOwnerFees + fee);
     }
 
 

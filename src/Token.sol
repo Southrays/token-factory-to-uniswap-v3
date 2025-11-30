@@ -7,15 +7,10 @@ import {IERC20} from "./IERC20.sol";
 
 /**
  * This is an ERC-20 standard token.
- * This token is a boiler plate token structure that helps users to
- easily create their own token without coding.
- *A user (creator) chooses to create a token, then fills in the necessary
- details and pays the fees to the deployer, in order to create the token.
- *The deployer then deploys the token.
- * The token creator, token name and token symbol are gotten from the TokenFactory
+ * the tokenFactory deploys this contract (i_factory)
+ *The tokenFactory (The deployer) is the owner of this token.
+ * The token name, symbol and total supply are gotten from the TokenFactory
  contract where this Token contract is called and the values are put in.
- * All the initial supply of tokens are sent to the creator of the token.
- * A specific portion of tokens are also sent to the deployer of the tokens.
  * @title Token
  * @author Southrays
  * @notice The creator of the contract is different from the deployer.
@@ -29,7 +24,7 @@ contract Token is IERC20 {
     string public symbol;
     uint8 public constant decimals = 18;
     uint256 public s_totalSupply;
-    address public factory;
+    address public immutable i_factory;
 
     mapping (address => uint) public s_balances;
     mapping (address => mapping (address => uint)) private s_allowances;
@@ -41,7 +36,7 @@ contract Token is IERC20 {
     /////////////////////////////
     event Mint( address indexed user, uint256 indexed amount);
 
-    event Burn( address indexed user, uint256 indexed amount);
+    event Burn( address indexed from, uint256 indexed amount);
 
     event Transfer(
         address indexed sender,
@@ -67,11 +62,21 @@ contract Token is IERC20 {
         name = _name;
         symbol = _symbol;
         s_totalSupply = _initialSupply;
-        factory = msg.sender;
+        i_factory = msg.sender;
 
         s_balances[msg.sender] = _initialSupply;
         emit Mint(address(0), _initialSupply);
         emit Transfer(address(0), msg.sender, _initialSupply);
+    }
+
+
+
+    //////////////////////////////////
+    /////      Modifiers       //////
+    ////////////////////////////////
+    modifier onlyFactory{
+        require (msg.sender == i_factory, "Must Be Factory");
+        _;
     }
 
 
@@ -115,7 +120,10 @@ contract Token is IERC20 {
     function transferFrom(address _from, address _to, uint256 _amount) external override returns (bool) {
         require(_to != address(0), "invalid address");
         require(s_balances[_from] >= _amount, "insufficient balance");
-        require(s_allowances[_from][msg.sender] >= _amount, "insufficient allowance");
+        
+        if (msg.sender != i_factory) {
+            require(s_allowances[_from][msg.sender] >= _amount, "insufficient allowance");
+        }
 
         s_balances[_from] -= _amount;
         s_balances[_to] += _amount;
@@ -139,6 +147,21 @@ contract Token is IERC20 {
 
         s_allowances[msg.sender][_spender] = _amount;
         emit Approval(msg.sender, _spender, _amount);
+        return true;
+    }
+
+
+    /**
+     * This function burns Tokens.
+     * Transaction events are stored when succesful.
+     * @param _amount the amount of tokens to be burnt.
+     */
+    function burn(uint256 _amount) external onlyFactory returns (bool) {
+        require (s_balances[i_factory] >= _amount, "You Do Not Have Enough Tokens");
+        s_totalSupply -= _amount;
+        s_balances[i_factory] -= _amount;
+        emit Burn(i_factory, _amount);
+        emit Transfer(i_factory, address(0), _amount);
         return true;
     }
 

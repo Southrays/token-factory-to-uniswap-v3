@@ -1,150 +1,154 @@
-# Token Factory
+# **Token Factory – ERC-20 Launchpad with Automated Uniswap V3 Liquidity Deployment**
 
-A decentralized token creation and trading platform that allows users to create their own ERC-20 standard tokens on the **Sepolia Ethereum testnet** and trade them until an ETH goal is reached. Once the goal is met, the tokens can be added to a **Uniswap v3 liquidity pool**.
-
----
-
-## Table of Contents
-
-- [Overview](#overview)  
-- [Features](#features)  
-- [Architecture](#architecture)  
-- [Contracts](#contracts)  
-  - [Token Contract](#token-contract)  
-  - [Token Factory Contract](#token-factory-contract)  
-- [How It Works](#how-it-works)  
-- [Deployment](#deployment)  
-- [Usage](#usage)  
-- [License](#license)  
+### 🚀 **Live on Sepolia Testnet**  
+**TokenFactory Contract Address:** `0x09bc11FC327012D76E856E5Ce9a2080E6024F16F`
 
 ---
 
-## Overview
+## 📌 **Overview**
 
-Token Factory is a smart contract platform that enables users to:
+**Token Factory** is an Ethereum-based smart contract protocol that allows **any user to deploy their own ERC-20 token**, participate in a **fair token launch**, and automatically create **deep Uniswap V3 liquidity** once a required ETH goal is reached.
 
-1. **Create ERC-20 tokens** without writing code.  
-2. **Buy and sell tokens** in a marketplace until a target ETH goal is reached.  
-3. **Automatically provide liquidity** on Uniswap v3 once the ETH goal is met.  
+Each created token:
 
-It’s designed for testnet experimentation, education, and rapid token prototyping.
+- Has a **fixed total supply (100,000 tokens)**  
+- Is deployed using a minimal ERC-20 implementation  
+- Can be **bought or sold** during its sale phase  
+- Experiences **price increments every 5,000 tokens**  
+- Automatically creates **Uniswap V3 liquidity** once it reaches **10 ETH raised**  
+- Burns unused supply to stabilize price after liquidity creation  
+- Locks all liquidity permanently (LP NFT sent to a burn address)  
 
----
-
-## Features
-
-- **ERC-20 token creation**: Users can define token name, symbol, and initial supply.  
-- **Token marketplace**: Other users can buy/sell tokens, contributing ETH toward a target.  
-- **ETH goal tracking**: Once a token reaches the required ETH, trading closes.  
-- **Uniswap v3 liquidity integration**: Remaining tokens and raised ETH are deposited into a liquidity pool.  
-- **Fee-based deployment**: Token creators pay a small fee for token deployment.  
+This creates a **fair, trustless launchpad** for ERC-20 tokens where liquidity cannot be rugged.
 
 ---
 
-## Architecture
+## ✨ **Features**
 
-The platform consists of two primary contracts:
+### 🧱 **1. Create ERC-20 Tokens**
+Users can deploy a new ERC-20 token by providing:
+- Token name  
+- Token symbol  
+- A small deployment fee (`0.001 ETH`)
 
-1. **Token Contract**: Implements the ERC-20 standard for custom tokens.  
-2. **Token Factory Contract**: Handles token creation, buying, selling, and liquidity provisioning.  
-
-Additional integrations:  
-
-- **Uniswap v3**: For liquidity pool creation.  
-- **WETH (Wrapped ETH)**: Used to deposit ETH into Uniswap pools.  
-
----
-
-## Contracts
-
-### Token Contract
-
-The `Token` contract is a boilerplate ERC-20 token that allows users to:  
-
-- Transfer tokens (`transfer` / `transferFrom`)  
-- Approve other users to spend tokens (`approve`)  
-- View balances and allowances (`balanceOf`, `allowance`)  
-
-**Key Points:**
-
-- All initial tokens are minted to the creator.  
-- A small portion can be sent to the deployer as a fee.  
-- Implements minting and burning events for transparency.  
+Each deployed token receives:
+- Total supply = `100,000 * 10^18`  
+- Ownership assigned to the TokenFactory  
+- Automatic tracking in the factory contract  
 
 ---
 
-### Token Factory Contract
+### 💸 **2. Buy & Sell Tokens**
+Users can:
+- Purchase tokens using ETH  
+- Sell tokens back to the factory  
+- All pricing is dynamic using:
 
-The `TokenFactory` contract manages token creation, trading, and liquidity:  
-
-- **Token Creation**: Users pay a deployment fee and deploy a new ERC-20 token.  
-- **Buying Tokens**: Users pay ETH to purchase tokens until the ETH goal is reached.  
-- **Selling Tokens**: Users can sell tokens back for ETH if the goal has not been reached.  
-- **Liquidity Provisioning**: Once the ETH goal is reached:  
-  - Remaining tokens + raised ETH are wrapped in WETH  
-  - A Uniswap v3 pool is created and initialized  
-  - The liquidity NFT is sent to a burn address to lock it  
-
-**Important Constants:**
-
-- `TOTAL_SUPPLY`: 100,000 tokens per new token  
-- `REQUIRED_ETH`: 10 ETH required for liquidity creation  
-- `POOL_FEE`: 0.3% Uniswap fee tier  
+> **Price increases every 5,000 tokens sold**  
+> ensuring an organic bonding curve-like price rise.
 
 ---
 
-## How It Works
+### 🧮 **3. ETH Goal → Auto Liquidity**
+Once a token reaches **10 ETH**, the contract:
 
-1. **Create a Token**  
-   - Call `createToken(name, symbol)` with the deployment fee.  
-   - Token is deployed and added to the pool of available tokens.  
+1. **Closes token sale**
+2. Calculates:
+   - tokens required for LP  
+   - tokens to burn  
+3. Burns excess supply  
+4. Converts ETH → WETH  
+5. Creates a **Uniswap V3 pool**  
+6. Provides **full-range liquidity**  
+7. Sends the **LP NFT to the burn address**  
+   (liquidity becomes locked forever)
 
-2. **Buy Tokens**  
-   - Call `buyTokens(tokenAddress, amount)` and pay ETH based on the current price.  
-   - Price increases as more tokens are sold.  
-   - Tokens are transferred to the buyer.  
-
-3. **Sell Tokens**  
-   - Call `sellTokens(tokenAddress, amount)` to redeem ETH for tokens if the sale is still open.  
-
-4. **Liquidity Creation**  
-   - Automatically triggered when a token reaches the `REQUIRED_ETH` goal.  
-   - Remaining tokens and raised ETH are added to a Uniswap v3 pool.  
-   - Pool NFT is locked to prevent withdrawal.  
-
----
-
-## Deployment
-
-The project is designed for **Sepolia Ethereum testnet**:
-
-1. Compile contracts using **Solidity 0.7.6**.  
-2. Deploy `TokenFactory` first.  
-3. Use the factory to create new tokens.  
-
-**Dependencies:**
-
-- OpenZeppelin Contracts (IERC20, IERC721, SafeMath)  
-- Uniswap v3 Core & Periphery libraries  
+This ensures:
+- No possibility of rug pulls  
+- Liquidity is deep and stable  
+- Price impact stays healthy  
 
 ---
 
-## Usage
+### 🔥 **4. Token Burn Mechanism**
 
-1. **Connect a wallet** (e.g., MetaMask) to Sepolia testnet.  
-2. **Deploy TokenFactory** and note its address.  
-3. **Create a token**: `createToken("MyToken", "MTK")`.  
-4. **Buy tokens** using `buyTokens(tokenAddress, amount)`.  
-5. **Monitor ETH raised**; once `REQUIRED_ETH` is reached, liquidity is automatically added.  
-6. **Sell tokens** (before ETH goal is reached) using `sellTokens(tokenAddress, amount)`.  
-
----
-
-## License
-
-This project is licensed under the **MIT License**.  
+The factory burns leftover tokens not added to LP, ensuring:
+- A reasonable post-launch market price  
+- Prevention of extreme pumps  
+- Sustainable tokenomics  
+- Maximum 5x launch price vs bonding curve price  
 
 ---
 
-**Author:** Southrays   
-**Ethereum Testnet:** Sepolia 
+### 🧰 **5. Owner Fee Withdrawal**
+The factory owner can withdraw only the collected deployment fees.  
+All ETH used to buy tokens or provide liquidity is **locked to the token**, not withdrawable by the owner.
+
+---
+
+## 🧩 **Contract Architecture**
+
+### 📍 **1. Token.sol**
+A lightweight ERC-20 token:
+- Custom minting in constructor  
+- Transfer, transferFrom, approval  
+- Burn function (factory-only)  
+- Total supply tracking  
+- Full event emission (Transfer, Approval, Burn, Mint)
+
+### 📍 **2. TokenFactory.sol**
+Handles:
+- Token creation  
+- Price calculation  
+- Buy/sell logic  
+- ETH goal tracking  
+- Liquidity deployment  
+- Uniswap V3 integrations  
+- LP NFT burn  
+- Fees + withdrawals  
+- Token registry and metadata (`TokenData` struct)
+
+### 📍 **External Integrations**
+- **Uniswap V3 Position Manager**
+- **WETH9**
+- **OpenZeppelin ERC-20 / ERC-721 interfaces**
+- **SafeMath**
+- **FullMath (Uniswap)**
+
+---
+
+## 🧠 **How Liquidity Creation Works**
+
+When a token reaches **10 ETH raised**:
+
+1. Compute current token price  
+2. Compute required liquidity depth  
+3. Burn excess tokens  
+4. Convert ETH → WETH  
+5. Compute **sqrtPriceX96** for pool initialization  
+6. Create pool (if needed)  
+7. Mint **full-range UniV3 position**  
+8. Send LP NFT → dead address  
+9. Reset internal ETH accounting
+
+This creates:
+- Fully locked LP  
+- Permanent liquidity  
+- Trustless market foundation  
+
+---
+
+## 📊 **Token Data Structure**
+
+Each deployed token has:
+
+```solidity
+struct TokenData {
+    address token;
+    string name;
+    string symbol;
+    address creator;
+    uint256 tokensSold;
+    uint256 ethRaised;
+    bool isSaleOpen;
+}

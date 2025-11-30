@@ -18,13 +18,17 @@ import {IWETH9} from "../lib/v3-periphery/contracts/interfaces/external/IWETH9.s
 /**
  * This is a Token Factory contract that enables users to create tokens.
  * The user inputs the required details to create the token, and then
- transfers a fee (i_fee) to the deployer of the token contract.
+ transfers a fee (i_fee) to the deployer (TokenFactory) of the token contract.
+ * Only the owner of the TokenFactory contract (s_owner) can withdraw the fees (i_fee).
  * The deployment is done, recorded and the user is then updated as the
  creator of the token.
  * Other users can buy these tokens, and pay Eth, towards an Eth goal (REQUIRED_ETH).
- * The more a particular token is bought, the higher the Eth price of that token.
- * When the Eth goal (REQUIRED_ETH) is met, the remaining supply of the particular
- token and all the Eth raised for that specific token would be added to a Liquidity pool.
+ * There is an increament in the price of a token by 0.001 Eth, after 5000 tokens are bought.
+ * When the Eth goal (REQUIRED_ETH) is met, a calculated amount of the particular token and
+ and all the Eth raised for that specific token would be added to a Liquidity pool.
+ *The Remaining tokens not added to the Liquidity pool would be burnt, this is done to
+ regulate the price after it has been added to the liquidity pool. Ensuring the price is not more
+ than 5 times higher hen it has been added to the Liquidity pool.
  * Users can also sell their tokens to receive Eth but once an Eth goal (REQUIRED_ETH) is
  met, there is no more buying or selling of that token because the token would have
  already been deployed to the Liquidity pool.
@@ -64,6 +68,7 @@ contract TokenFactory {
     /////     Variables     /////
     ////////////////////////////
     address public s_owner;
+    uint256 public s_ownerFees;
     uint256 public s_totalTokens;
     address[] public s_tokens;
     mapping (address => TokenData) public s_tokenData;
@@ -112,11 +117,20 @@ contract TokenFactory {
     ////////////////////////////////
     /////     Constructor     /////
     //////////////////////////////
-    constructor() {
+    constructor(address _wEth, address _positionManager) {
         s_owner = msg.sender;
         i_fee = 0.001 ether;
-        i_wEth = 0xdd13E55209Fd76AfE204dBda4007C227904f0a81;
-        i_positionManager = INonfungiblePositionManager(0x655C406eBfA14eE2006250925e54a1DC297b4de5);
+        i_wEth = _wEth;
+        i_positionManager = INonfungiblePositionManager(_positionManager);
+    }
+
+
+    /////////////////////////////
+    /////     Modifier     /////
+    ///////////////////////////
+    modifier onlyOwner() {
+        require (msg.sender == s_owner, "Must Be Owner");
+        _;
     }
 
 
@@ -129,7 +143,8 @@ contract TokenFactory {
      * The user who wants to create a token is required to input the
      name and symbol of the token being created, then pay a deployment fee.
      * It checks if the user has the deployment fee (i_fee) amount.
-     * The deployment fee is then transferred to the owner (s_owner).
+     * The deployment fee is then transferred to the contract, then the
+     contract pays the fee to the owner (s_owner).
      * If the user has the fee amout and the transaction is successful,
      the new token is then deployed, with the user as the creator of
      the token.
@@ -159,6 +174,7 @@ contract TokenFactory {
         );
 
         s_tokenData[address(newToken)] = tokenData;
+        s_ownerFees += i_fee;
 
         return address(newToken);
     }
@@ -166,7 +182,7 @@ contract TokenFactory {
 
     /**
      * This function allows user to buy a specific token.
-     * It works by the user inputing the address of the token and the
+     * It works by the user inputing the address of the token and the Eth
      amount they want to buy.
      * From the token address, it gets the current cost of the token via
      the getCost() function.
@@ -179,29 +195,28 @@ contract TokenFactory {
      the token.
      *Finally, the Buy token event is recorded.
      * @param _token The address of the token the user wants to buy.
-     * @param _amount The amount of tokens the user wants to buy.
      */
-    function buyTokens(address _token, uint256 _amount) external payable {
-        TokenData storage tokenData = s_tokenData[_token];
-
-        require(tokenData.isSaleOpen, "Token sale closed");
-        require(tokenData.tokensSold.add(_amount) <= Token(_token).totalSupply(), "Not enough tokens left");
-
+    function buyTokens(address _token) external payable returns (uint256) {
         uint256 tokenCost = getCost(_token);
-        uint256 tokenPrice = (tokenCost * _amount) / 1e18;
+        uint256 tokenAmount = (msg.value * 1e18) / tokenCost;
+        uint256 tokenPrice = (tokenCost * tokenAmount) / 1e18;
 
-        require(msg.value >= tokenPrice, "Insufficient ETH for purchase");
+        TokenData storage tokenData = s_tokenData[_token];
+        require(tokenData.isSaleOpen, "Token sale is closed");
+        require(tokenData.tokensSold + tokenAmount <= Token(_token).totalSupply(), "Not enough tokens left");
+        require(msg.value == tokenPrice, "Insufficient ETH for purchase");
 
-        tokenData.tokensSold = tokenData.tokensSold.add(_amount);
+        tokenData.tokensSold = tokenData.tokensSold.add(tokenAmount);
         tokenData.ethRaised = tokenData.ethRaised.add(msg.value);
+        Token(_token).transfer(msg.sender, tokenAmount);
 
         if (tokenData.ethRaised >= REQUIRED_ETH) {
             tokenData.isSaleOpen = false;
             _createLiquidity(_token);
         }
         
-        Token(_token).transfer(msg.sender, _amount);
-        emit BuyToken(msg.sender, _token, _amount);
+        emit BuyToken(msg.sender, _token, tokenAmount);
+        return tokenAmount;
     }
 
 
@@ -222,10 +237,10 @@ contract TokenFactory {
      * @param _token The address of the token the user wants to buy.
      * @param _amount The amount of tokens the user wants to buy.
      */
-    function sellTokens(address _token, uint256 _amount) external {
+    function sellTokens(address _token, uint256 _amount) external returns (uint256){
         TokenData storage tokenData = s_tokenData[_token];
 
-        require(tokenData.isSaleOpen, "Token sale closed");
+        require(tokenData.isSaleOpen, "Token sale is closed");
         require(Token(_token).balanceOf(msg.sender) >= _amount, "Not enough token balance");
 
         uint256 tokenCost = getCost(_token);
@@ -239,7 +254,24 @@ contract TokenFactory {
         require(Token(_token).transferFrom(msg.sender, address(this), _amount), "Token transferFrom failed");
         (bool success, ) = payable(msg.sender).call{value: tokenPrice}("");
         require(success, "ETH transfer failed");
+
         emit SellToken(msg.sender, _token, _amount);
+        return tokenPrice;
+    }
+
+    /**
+     * This is the function that enables the owner of the Token Factory
+     contract to withdraw all the accumulated eth from token creation fees
+     */
+    function withdraw() external onlyOwner returns (bool){
+        require (s_ownerFees > 0, "There are no Fees to withdraw");
+
+        (bool success, ) = payable(s_owner).call{value: s_ownerFees}("");
+        if (success) {
+            s_ownerFees = 0;
+        }
+        require (success, "Transaction Unsuccessful");
+        return success;
     }
 
 
@@ -250,21 +282,29 @@ contract TokenFactory {
     /// @dev integer sqrt (Babylonian)
     function _createLiquidity(address _token) internal returns (bool) {
         TokenData storage tokenData = s_tokenData[_token];
+        uint256 ethRaised = tokenData.ethRaised;
+        require(ethRaised >= REQUIRED_ETH, "Not enough ETH raised");
 
         uint256 totalTokenSupply = Token(_token).totalSupply();
         uint256 tokensSold = tokenData.tokensSold;
         require(totalTokenSupply > tokensSold, "No remaining tokens");
 
         uint256 remainingTokens = totalTokenSupply.sub(tokensSold);
-        uint256 ethRaised = tokenData.ethRaised;
-        require(ethRaised > 0, "No ETH raised");
 
+        // Regulating the desired LP price
+        uint256 currentPrice = getCost(_token);
+        uint256 requiredTokens = ethRaised * 1e18 / currentPrice;
+        uint256 tokensForLP = requiredTokens * 5; // 5× deeper liquidity
+        uint256 tokensToBurn = remainingTokens - tokensForLP;
+
+        // Burning the unused tokens
+        Token(_token).burn(tokensToBurn);
 
         // Wrap ETH -> WETH (contract must hold the ETH in balance)
         IWETH9(i_wEth).deposit{value: ethRaised}();
 
         // Approve the position manager to pull the tokens and WETH
-        require(IERC20(_token).approve(address(i_positionManager), remainingTokens), "approve token failed");
+        require(IERC20(_token).approve(address(i_positionManager), tokensForLP), "approve token failed");
         require(IERC20(i_wEth).approve(address(i_positionManager), ethRaised), "approve weth failed");
 
         // Compute sqrtPriceX96 for pool initialization
@@ -275,12 +315,12 @@ contract TokenFactory {
         if (i_wEth < _token) {
             token0 = i_wEth;
             token1 = _token;
-            uint256 ratioX192 = FullMath.mulDiv(remainingTokens, (1 << 192), ethRaised);
+            uint256 ratioX192 = FullMath.mulDiv(tokensForLP, (1 << 192), ethRaised);
             sqrtPriceX96 = uint160(_sqrt(ratioX192));
         } else {
             token0 = _token;
             token1 = i_wEth;
-            uint256 ratioX192 = FullMath.mulDiv(ethRaised, (1 << 192), remainingTokens);
+            uint256 ratioX192 = FullMath.mulDiv(ethRaised, (1 << 192), tokensForLP);
             sqrtPriceX96 = uint160(_sqrt(ratioX192));
         }
 
@@ -294,8 +334,8 @@ contract TokenFactory {
             fee: POOL_FEE,
             tickLower: -887272,
             tickUpper: 887272,
-            amount0Desired: token0 == i_wEth ? ethRaised : remainingTokens,
-            amount1Desired: token0 == i_wEth ? remainingTokens : ethRaised,
+            amount0Desired: token0 == i_wEth ? ethRaised : tokensForLP,
+            amount1Desired: token0 == i_wEth ? tokensForLP : ethRaised,
             amount0Min: 0,
             amount1Min: 0,
             recipient: address(this),
@@ -309,16 +349,6 @@ contract TokenFactory {
 
         // Reset ethRaised accounting and return any dust to creator
         tokenData.ethRaised = 0;
-
-        uint256 leftoverWEth = IERC20(i_wEth).balanceOf(address(this));
-        if (leftoverWEth > 0) {
-            IERC20(i_wEth).transfer(tokenData.creator, leftoverWEth);
-        }
-
-        uint256 leftoverToken = IERC20(_token).balanceOf(address(this));
-        if (leftoverToken > 0) {
-            IERC20(_token).transfer(tokenData.creator, leftoverToken);
-        }
 
         emit CreateLiquidity(tokenData.creator, _token);
         return true;
@@ -357,9 +387,9 @@ contract TokenFactory {
      */
     function getCost(address _tokenAddress) public view returns (uint256) {
         uint256 sold = s_tokenData[_tokenAddress].tokensSold;
-        uint256 floor = 0.0001 ether;
-        uint256 step = 0.0001 ether;
-        uint256 increment = 10_000 * 1e18;
+        uint256 floor = 0.001 ether;
+        uint256 step = 0.001 ether;
+        uint256 increment = 5_000 * 1e18;
 
         uint256 steps = sold.div(increment);
         uint256 cost = floor.add(step.mul(steps));
